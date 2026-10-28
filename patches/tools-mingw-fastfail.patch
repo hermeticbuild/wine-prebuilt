@@ -1,0 +1,24 @@
+Wine 11.20 winnt.h defines __fastfail even when MinGW's _mingw.h has
+already provided it. The preceding extern GNU-inline declaration gives
+Wine's static definition external linkage in Clang, producing duplicate
+symbols when two tool translation units are linked. Keep MinGW's definition
+(or its compiler builtin) when its capability macro is present.
+
+This affects standalone Windows developer tools, not the Unix Wine runtime.
+
+--- a/include/winnt.h
++++ b/include/winnt.h
+@@ -8291,6 +8291,7 @@
+ #endif
+ }
+ 
++#ifndef __MINGW_FASTFAIL_IMPL
+ static FORCEINLINE DECLSPEC_NORETURN void __fastfail(unsigned int code)
+ {
+ #if defined(__aarch64__) || defined(__arm64ec__)
+@@ -8303,4 +8304,5 @@
+     for (;;) __asm__ __volatile__( "udf #0xfb" :: "r" (val) : "memory" );
+ #endif
+ }
++#endif
+ 

@@ -5,6 +5,12 @@ Each runtime is provided as `.tar.gz` and `.tar.zst`, accompanied by matching
 populated FEX source and dependencies when used, and the build recipes/patches.
 Do not redistribute only a binary while dropping these companion artifacts.
 
+The same release contains separate `wine-tools` archives for all five native
+executors. They contain wmc, wrc, widl, generation headers/IDL definitions,
+standard AMD64/ARM64 type libraries, and Unix NLS data. Their source companions
+contain Wine and the recipe, without FEX. Windows tools use Windows' native
+locale APIs and UCRT; they do not contain a Wine runtime.
+
 Wine and its derived patches retain LGPL-2.1-or-later licensing, with additional
 notices for code incorporated by Wine. FEX is MIT-licensed and has third-party
 components with their own notices. LLVM-MinGW contains LLVM runtimes and MinGW
@@ -21,12 +27,15 @@ Ninja downloads are test inputs and are not included in runtime archives.
 ## Release gates
 
 1. Verify all download checksums and retain exact source revisions and patches.
-2. Audit every ELF/Mach-O for architecture, runtime dependencies and relative
+2. Audit every ELF/Mach-O and Windows tools PE for architecture, runtime dependencies and relative
    search paths in the packaged artifacts. Linux GLIBC version references must
    not exceed 2.17; Mach-O deployment minima must fit the declared target.
 3. Verify the two compression formats contain identical tar bytes; test the final
    extracted archive at a different path, with fresh prefixes.
    Test all advertised guest CPUs, not merely `wine --version`.
+   Tools tests must generate and inspect message resources, headers, Unicode
+   resources with included assets, and IDL/type libraries with standard imports.
+   Cross-built Windows tools must pass on native Windows runners before attestation.
 4. Run Linux checks in both the current builder and glibc 2.17 userspace.
 5. Attach the runtime, source, checksums, manifest, artifact/runtime test reports and
    attestation bundles. Verify signatures, build workflow identity and source

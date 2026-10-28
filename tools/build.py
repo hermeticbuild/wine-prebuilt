@@ -26,6 +26,21 @@ def run(*command, **kwargs):
     subprocess.run(command, check=True, **kwargs)
 
 
+def snapshot_recipe(directory):
+    """Retain the recipe alongside each product's corresponding source."""
+    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True))
+    for name in ("tools", "tests", "patches", ".github", "sources.json", "Dockerfile",
+                 "README.md", "DISTRIBUTION.md", "LICENSE", ".clang-format", ".gitignore"):
+        target = directory / "recipe" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        if (ROOT / name).is_dir():
+            shutil.copytree(ROOT / name, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        else:
+            shutil.copy2(ROOT / name, target)
+    return {"os": platform.platform(), "recipe_commit": revision, "recipe_dirty": dirty}
+
+
 def prepare_wine(destination, source, target):
     if destination.exists():
         return
@@ -76,18 +91,9 @@ def main():
     if directory.exists():
         parser.error(f"build directory already exists: {directory}; choose a fresh --work directory")
     directory.mkdir(parents=True)
-    revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
-    dirty = bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT, text=True))
     # Preserve the exact recipe files used, including local edits. Release
     # builds require a clean checkout; local experiments are marked dirty.
-    for name in ("tools", "tests", "patches", ".github", "sources.json", "Dockerfile",
-                 "README.md", "DISTRIBUTION.md", "LICENSE", ".clang-format", ".gitignore"):
-        target = directory / "recipe" / name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        if (ROOT / name).is_dir():
-            shutil.copytree(ROOT / name, target, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
-        else:
-            shutil.copy2(ROOT / name, target)
+    build_environment = snapshot_recipe(directory)
     toolchain = fetch("toolchain-" + args.platform, cache)
     (directory / "sources").mkdir()
     source = directory / "sources/wine"
@@ -104,7 +110,6 @@ def main():
     environment["PATH"] = str(toolchain / "bin") + os.pathsep + environment["PATH"]
     environment["JOBS"] = str(args.jobs)
     sources = json.loads((ROOT / "sources.json").read_text())
-    build_environment = {"os": platform.platform(), "recipe_commit": revision, "recipe_dirty": dirty}
     sysroot = None
     if system == "Darwin":
         environment.update(CC="/usr/bin/clang", CXX="/usr/bin/clang++",

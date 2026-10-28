@@ -1,0 +1,8 @@
+#include <winresrc.h>
+#include "resource_ids.h"
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
+STRINGTABLE
+BEGIN
+    IDS_HELLO "Wine tools: café"
+END
+IDR_PAYLOAD RCDATA "payload.txt"

@@ -8,7 +8,7 @@ on:
       artifact_serial:
         description: Artifact serial for the pinned Wine version
         type: string
-        default: '1'
+        default: '2'
 permissions:
   contents: read
 jobs:
@@ -19,5 +19,5 @@ jobs:
       attestations: write
       id-token: write
     with:
-      artifact_serial: ${{ inputs.artifact_serial || '1' }}
+      artifact_serial: ${{ inputs.artifact_serial || '2' }}
       attest: ${{ github.event_name != 'pull_request' }}

@@ -1,0 +1,21 @@
+import "unknwn.idl";
+
+[
+    object,
+    uuid(3b972cc4-ef6a-4d70-9a48-7829556e980c),
+    pointer_default(unique)
+]
+interface IExample : IUnknown
+{
+    HRESULT Ping([out, retval] long *value);
+};
+
+[
+    uuid(7cd03083-7884-4d6d-8d79-b69a94c3f94b),
+    version(1.0)
+]
+library ToolTests
+{
+    importlib("stdole2.tlb");
+    interface IExample;
+};
