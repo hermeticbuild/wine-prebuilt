@@ -12,7 +12,7 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from package import archive
-from artifacts import verify_archive_pair, audit
+from artifacts import INTERPRETERS, verify_archive_pair, audit
 from distribution import FORMATS, PLATFORMS, TOOLS, distributions, basename, serial_from_tag, sha256
 from fetch import ROOT
 from release import compare_existing, validate_assets
@@ -67,6 +67,19 @@ class ArchivesTest(unittest.TestCase):
                             str(source), "-o", str(root / "minimal.dylib")], check=True)
             with self.assertRaisesRegex(ValueError, "exceeds declared deployment target"):
                 audit(root, "macos-arm64")
+
+    @unittest.skipUnless(platform.system() == "Linux", "requires the native ELF tools")
+    def test_glibc_loader_is_an_allowed_native_dependency(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "minimal.c"
+            source.write_text("int exported(void) { return 1; }\n")
+            executor = "linux-amd64" if platform.machine() == "x86_64" else "linux-arm64"
+            loader = INTERPRETERS[executor]
+            subprocess.run(["cc", "-shared", "-nostdlib", "-Wl,--no-as-needed", loader,
+                            str(source), "-o", str(root / "minimal.so")], check=True)
+            records = audit(root, executor)
+            self.assertEqual(records[0]["libraries"], [Path(loader).name])
 
     @unittest.skipUnless(platform.system() == "Linux", "requires the native ELF tools")
     def test_origin_search_path_cannot_escape_the_distribution(self):

@@ -99,7 +99,11 @@ def audit(root, platform):
                 raise ValueError(f"glibc newer than 2.17: {path}: {versions}")
             libraries = re.findall(r"Shared library: \[([^]]+)\]", info)
             for library in libraries:
-                if library not in GLIBC_LIBRARIES and library not in ("ntdll.so", "win32u.so"):
+                # GCC's ARM64 support code can reference the glibc loader
+                # directly. It is already required by this executable's ABI.
+                if library not in GLIBC_LIBRARIES and library not in (
+                    "ntdll.so", "win32u.so", Path(INTERPRETERS[platform]).name
+                ):
                     raise ValueError(f"unexpected ELF dependency: {path}: {library}")
             interpreters = re.findall(r"Requesting program interpreter: ([^]]+)", info)
             if interpreters and interpreters != [INTERPRETERS[platform]]:
