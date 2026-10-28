@@ -16,9 +16,11 @@ This affects standalone Windows developer tools, not the Unix Wine runtime.
  static FORCEINLINE DECLSPEC_NORETURN void __fastfail(unsigned int code)
  {
  #if defined(__aarch64__) || defined(__arm64ec__)
-@@ -8303,4 +8304,5 @@
+@@ -8303,6 +8304,7 @@
      for (;;) __asm__ __volatile__( "udf #0xfb" :: "r" (val) : "memory" );
  #endif
  }
 +#endif
+ 
+ #endif  /* __GNUC__ */
  
