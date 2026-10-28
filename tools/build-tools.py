@@ -87,7 +87,7 @@ def main():
     metadata = snapshot_recipe(directory)
     source = directory / "sources/wine"
     shutil.copytree(fetch("wine", work / "cache"), source, symlinks=True)
-    toolchain = fetch("toolchain-" + host, work / "cache")
+    toolchain = fetch("toolchain-" + host, work / "cache") if windows else None
     # Match the installed Wine headers to the native Windows compiler's CRT.
     if windows:
         subprocess.run(["patch", "-t", "-N", "-F", "0", "-p1", "-i",
@@ -148,7 +148,7 @@ def main():
     sources = json.loads((ROOT / "sources.json").read_text())
     (directory / "build.json").write_text(json.dumps({
         "product": "tools", "platform": args.platform, "wine": sources["wine"]["version"],
-        "fex": False, "install": str(install), "toolchain": str(toolchain),
+        "fex": False, "install": str(install), "toolchain": str(toolchain) if toolchain else None,
         "sysroot": str(sysroot) if sysroot else None, "build": metadata, "sources": sources,
     }, indent=2) + "\n")
     print(install)

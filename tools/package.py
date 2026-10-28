@@ -91,7 +91,8 @@ def main():
         shutil.copytree(runtime, staging, symlinks=True, copy_function=os.link)
         notices = staging / "LICENSES"
         copy_notices(directory / "sources/wine", notices / "wine")
-        copy_notices(Path(build["toolchain"]), notices / "llvm-mingw")
+        if build["toolchain"]:
+            copy_notices(Path(build["toolchain"]), notices / "llvm-mingw")
         if build["sysroot"]:
             copy_notices(Path("/usr/share/doc/gcc-13-base"), notices / "gcc-host")
             if build["platform"] == "linux-amd64":

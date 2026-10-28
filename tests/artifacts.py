@@ -200,7 +200,10 @@ def check_artifact(artifact, platform):
             raise ValueError("manifest does not match declared executor/guest requirements")
         if product == "runtime" and manifest["windows_cpus"] != PLATFORMS[platform]["guests"]:
             raise ValueError("manifest guest CPUs differ")
-        for required in ("lib/wine", "LICENSES/wine", "LICENSES/llvm-mingw"):
+        required_directories = ["lib/wine", "LICENSES/wine"]
+        if product == "runtime" or platform.startswith("windows-"):
+            required_directories.append("LICENSES/llvm-mingw")
+        for required in required_directories:
             if not (root / required).is_dir():
                 raise ValueError(f"missing distribution directory: {required}")
         if product == "tools":
