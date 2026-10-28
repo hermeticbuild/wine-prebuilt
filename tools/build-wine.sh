@@ -13,6 +13,8 @@ cd "$build_dir"
 options=(
     --prefix="$install_dir" --enable-archs="$architectures" --with-mingw=llvm-mingw
     --disable-tests --disable-win16
+    # Built despite --without-udev/--without-sdl, and enumerates host HID devices through IOKit on macOS.
+    --disable-winebus.sys
     --without-x --without-wayland --without-opengl --without-vulkan
     --without-alsa --without-coreaudio --without-oss --without-pulse
     --without-capi --without-cups --without-dbus --without-ffmpeg
