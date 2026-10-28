@@ -43,3 +43,12 @@ Porting evidence: [FEX ARM64EC build instructions](https://wiki.fex-emu.com/inde
 and MetalSharp's v2.0 source/build scripts. This repository uses the shipped
 LLVM-MinGW 20261020 ARM64EC runtime, with LTO disabled and a generic tuning CPU.
 Native ARM64/x64 Windows fixture runs are required to validate that choice.
+
+Standalone Windows developer tools apply only `tools-mingw-fastfail.patch`,
+a local guard around Wine's `__fastfail` definition when MinGW already provides
+it. With LLVM-MinGW 20261020, the preceding GNU-inline declaration otherwise
+gives Wine's definition external linkage, producing duplicate symbols when
+linking multiple tool translation units. All three tools failed to link before
+the guard and cross-compiled for AMD64 and ARM64 after it. Native Windows CI
+then exercises the packaged tools. Unix developer tools use unpatched Wine
+sources; none of the Wine/FEX runtime patches are needed by these programs.

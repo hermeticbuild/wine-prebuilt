@@ -12,8 +12,8 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "tools"))
 from package import archive
-from artifacts import verify_archive_pair, audit
-from distribution import FORMATS, PLATFORMS, basename, serial_from_tag, sha256
+from artifacts import INTERPRETERS, verify_archive_pair, audit
+from distribution import FORMATS, PLATFORMS, TOOLS, distributions, basename, serial_from_tag, sha256
 from fetch import ROOT
 from release import compare_existing, validate_assets
 
@@ -69,6 +69,19 @@ class ArchivesTest(unittest.TestCase):
                 audit(root, "macos-arm64")
 
     @unittest.skipUnless(platform.system() == "Linux", "requires the native ELF tools")
+    def test_glibc_loader_is_an_allowed_native_dependency(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "minimal.c"
+            source.write_text("int exported(void) { return 1; }\n")
+            executor = "linux-amd64" if platform.machine() == "x86_64" else "linux-arm64"
+            loader = INTERPRETERS[executor]
+            subprocess.run(["cc", "-shared", "-nostdlib", "-Wl,--no-as-needed", loader,
+                            str(source), "-o", str(root / "minimal.so")], check=True)
+            records = audit(root, executor)
+            self.assertEqual(records[0]["libraries"], [Path(loader).name])
+
+    @unittest.skipUnless(platform.system() == "Linux", "requires the native ELF tools")
     def test_origin_search_path_cannot_escape_the_distribution(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -88,8 +101,8 @@ class ReleaseTest(unittest.TestCase):
         self.output = Path(temporary.name)
         # Small stand-ins for archive bytes exercise release completeness and
         # hash binding; actual tar/compression behavior is tested above.
-        for platform, spec in PLATFORMS.items():
-            name = basename(platform, "11.20", 1)
+        for product, platform in distributions():
+            name = basename(platform, "11.20", 1, product)
             archives = {}
             for kind in ("", "-sources"):
                 for extension in FORMATS:
@@ -99,11 +112,12 @@ class ReleaseTest(unittest.TestCase):
                     (self.output / (path.name + ".sha256")).write_text(f"{digest}  {path.name}\n")
                     if not kind:
                         archives[path.name] = digest
-            self.write_json(name + ".manifest.json", {"platform": platform, "wine": "11.20",
+            self.write_json(name + ".manifest.json", {"product": product, "platform": platform, "wine": "11.20",
                             "artifact_version": "11.20.1",
                             "build": {"recipe_commit": "abc123", "recipe_dirty": False}})
-            self.write_json(name + ".qualification.json", {"status": "passed", "archives": archives,
-                            "guests": spec["guests"]})
+            coverage = {"guests": PLATFORMS[platform]["guests"]} if product == "runtime" else {
+                "tools": list(TOOLS), "target_cpus": ["amd64", "arm64"]}
+            self.write_json(name + ".qualification.json", {"status": "passed", "archives": archives, **coverage})
             self.write_json(name + ".artifacts.json", {"status": "passed", "archives": {
                 name + kind + extension: sha256(self.output / (name + kind + extension))
                 for kind in ("", "-sources") for extension in FORMATS}})
@@ -115,9 +129,22 @@ class ReleaseTest(unittest.TestCase):
     def write_json(self, name, value):
         (self.output / name).write_text(json.dumps(value))
 
-    def test_complete_three_executor_release_is_accepted(self):
+    def test_complete_runtime_and_tools_release_is_accepted(self):
         assets = validate_assets(self.output, "11.20", 1, "abc123")
-        self.assertEqual(len(assets), 38)
+        self.assertEqual(len(assets), 100)
+
+    def test_missing_windows_tools_qualification_prevents_publication(self):
+        (self.output / "wine-tools-windows-arm64-11.20.1.qualification.json").unlink()
+        with self.assertRaises(FileNotFoundError):
+            validate_assets(self.output, "11.20", 1, "abc123")
+
+    def test_missing_widl_coverage_prevents_publication(self):
+        name = "wine-tools-windows-amd64-11.20.1.qualification.json"
+        report = json.loads((self.output / name).read_text())
+        report["tools"] = ["wmc", "wrc"]
+        self.write_json(name, report)
+        with self.assertRaisesRegex(ValueError, "developer tools are not qualified"):
+            validate_assets(self.output, "11.20", 1, "abc123")
 
     def test_modified_archive_is_rejected_before_upload(self):
         (self.output / "wine-linux-amd64-11.20.1.tar.gz").write_bytes(b"corrupt")

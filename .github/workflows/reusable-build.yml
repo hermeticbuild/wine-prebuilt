@@ -4,7 +4,7 @@ on:
     inputs:
       artifact_serial:
         type: string
-        default: '1'
+        default: '2'
       attest:
         type: boolean
         default: true
@@ -110,4 +110,156 @@ jobs:
             .work/**/wine-build/*.log
             .work/**/fex-build/**/*.log
             .work/tests/**/*.log
+          include-hidden-files: true
+  tools:
+    name: Build tools ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-amd64
+            runner: ubuntu-24.04
+            execute: tools/in-linux-container.sh
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+            execute: tools/in-linux-container.sh
+          - platform: macos-arm64
+            runner: macos-26
+            execute: ''
+          - platform: windows-amd64
+            runner: ubuntu-24.04
+            execute: tools/in-linux-container.sh
+          - platform: windows-arm64
+            runner: ubuntu-24.04
+            execute: tools/in-linux-container.sh
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    env:
+      PLATFORM: ${{ matrix.platform }}
+      SERIAL: ${{ inputs.artifact_serial }}
+      EXECUTE: ${{ matrix.execute }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Install macOS tool-build dependencies
+        if: runner.os == 'macOS'
+        run: brew install bison flex python@3.14 zstd
+      - name: Prepare Linux build environment
+        if: runner.os == 'Linux'
+        run: docker build -t wine-builder .
+      - name: Build wmc, wrc, widl and standard type libraries
+        run: $EXECUTE python3 tools/build-tools.py "$PLATFORM"
+      - name: Package developer tools and corresponding sources
+        id: package
+        run: $EXECUTE python3 tools/package.py ".work/tools-$PLATFORM" --serial "$SERIAL"
+      - name: Check tools artifacts — layout, native architecture, dependencies and ABI
+        env:
+          ARTIFACT: ${{ steps.package.outputs.artifact }}
+        run: $EXECUTE python3 tests/artifacts.py "$ARTIFACT" --platform "$PLATFORM"
+      - name: Test relocated developer tools
+        if: ${{ !startsWith(matrix.platform, 'windows-') }}
+        env:
+          ARTIFACT: ${{ steps.package.outputs.artifact }}
+        run: $EXECUTE python3 tests/tools.py "$ARTIFACT"
+      - name: Test tools compatibility — glibc 2.17 userspace
+        if: startsWith(matrix.platform, 'linux-')
+        env:
+          ARTIFACT: ${{ steps.package.outputs.artifact }}
+        run: python3 tests/tools.py "$ARTIFACT" --compatibility
+      - name: Attest tested tools distributions
+        if: ${{ inputs.attest && !startsWith(matrix.platform, 'windows-') }}
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: out/*
+      - name: Preserve attestation bundle
+        if: ${{ inputs.attest && !startsWith(matrix.platform, 'windows-') }}
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+          NAME: ${{ steps.package.outputs.attestation_name }}
+        run: cp "$BUNDLE" "out/$NAME"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ startsWith(matrix.platform, 'windows-') && format('unchecked-tools-{0}', matrix.platform) || format('wine-tools-{0}', matrix.platform) }}
+          path: out/*
+          if-no-files-found: error
+      - name: Upload tools failure logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: tools-logs-${{ matrix.platform }}
+          path: |
+            .work/tools-*/tools-build/**/*.log
+            .work/tools-*/native-build/**/*.log
+            .work/tests/**/*.log
+          include-hidden-files: true
+  windows-tools:
+    name: Test tools ${{ matrix.platform }}
+    needs: tools
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-amd64
+            runner: windows-2025
+          - platform: windows-arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      attestations: write
+      id-token: write
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: unchecked-tools-${{ matrix.platform }}
+          path: out
+      - name: Check Windows tools artifacts
+        run: |
+          $archive = (Get-ChildItem "out/wine-tools-$env:PLATFORM-*.tar.gz" | Where-Object Name -NotLike '*-sources.tar.gz').FullName
+          python tests/artifacts.py "$archive" --platform "$env:PLATFORM"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Test relocated tools on the native Windows CPU
+        run: |
+          $archive = (Get-ChildItem "out/wine-tools-$env:PLATFORM-*.tar.gz" | Where-Object Name -NotLike '*-sources.tar.gz').FullName
+          python tests/tools.py "$archive"
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Attest tested Windows tools distributions
+        if: inputs.attest
+        id: attest
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4
+        with:
+          subject-path: out/*
+      - name: Preserve attestation bundle
+        if: inputs.attest
+        env:
+          BUNDLE: ${{ steps.attest.outputs.bundle-path }}
+        run: |
+          $manifest = Get-ChildItem "out/wine-tools-$env:PLATFORM-*.manifest.json"
+          $name = $manifest.Name.Replace('.manifest.json', '.attestation.jsonl')
+          Copy-Item "$env:BUNDLE" "out/$name"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: wine-tools-${{ matrix.platform }}
+          path: out/*
+          if-no-files-found: error
+      - name: Upload Windows tools failure logs
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: windows-tools-logs-${{ matrix.platform }}
+          path: .work/tests/**/*.log
           include-hidden-files: true

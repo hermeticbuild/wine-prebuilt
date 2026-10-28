@@ -12,7 +12,7 @@ import tarfile
 import tempfile
 
 from fetch import ROOT
-from distribution import FORMATS, PLATFORMS, basename, sha256, version
+from distribution import FORMATS, PLATFORMS, TOOLS, TOOLS_PLATFORMS, basename, sha256, version
 
 
 def normalized(info):
@@ -58,8 +58,9 @@ def main():
         parser.error("--serial must be nonnegative")
     directory = args.build.resolve()
     build = json.loads((directory / "build.json").read_text())
+    product = build.get("product", "runtime")
     runtime = directory / "install"
-    name = basename(build["platform"], build["wine"], args.serial)
+    name = basename(build["platform"], build["wine"], args.serial, product)
     output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     artifact = output / f"{name}.tar.gz"
@@ -69,20 +70,30 @@ def main():
         parser.error("artifact already exists; use a new output directory or serial")
     manifest = {key: value for key, value in build.items() if key not in ("install", "toolchain", "sysroot")}
     os_name, cpu = build["platform"].split("-")
-    manifest.update(schema_version=1, serial=args.serial, artifact_version=version(build["wine"], args.serial),
+    manifest.update(schema_version=1, product=product, serial=args.serial, artifact_version=version(build["wine"], args.serial),
                     executor={"os": os_name, "cpu": cpu},
-                    windows_cpus=PLATFORMS[build["platform"]]["guests"],
-                    requirements=PLATFORMS[build["platform"]]["requirements"],
-                    executables={"wine": "bin/wine", "wineserver": "bin/wineserver"},
                     source_archives=[name + "-sources" + extension for extension in FORMATS])
+    if product == "runtime":
+        manifest.update(windows_cpus=PLATFORMS[build["platform"]]["guests"],
+                        requirements=PLATFORMS[build["platform"]]["requirements"],
+                        executables={"wine": "bin/wine", "wineserver": "bin/wineserver"})
+    else:
+        suffix = ".exe" if os_name == "windows" else ""
+        manifest.update(requirements=TOOLS_PLATFORMS[build["platform"]],
+                        executables={tool: "bin/" + tool + suffix for tool in TOOLS},
+                        target_cpus=["amd64", "arm64"],
+                        include_dir="include/wine/windows", typelib_dir="lib/wine",
+                        nls_dir=None if os_name == "windows" else "share/wine/nls",
+                        features={"gettext_po_output": False, "locale_data": "windows" if suffix else "bundled"})
     with tempfile.TemporaryDirectory(prefix="package-", dir=directory) as temporary:
         staging = Path(temporary) / name
         # Hard links avoid duplicating large PE trees. No existing file is edited.
         shutil.copytree(runtime, staging, symlinks=True, copy_function=os.link)
         notices = staging / "LICENSES"
         copy_notices(directory / "sources/wine", notices / "wine")
-        copy_notices(Path(build["toolchain"]), notices / "llvm-mingw")
-        if build["platform"].startswith("linux-"):
+        if build["toolchain"]:
+            copy_notices(Path(build["toolchain"]), notices / "llvm-mingw")
+        if build["sysroot"]:
             copy_notices(Path("/usr/share/doc/gcc-13-base"), notices / "gcc-host")
             if build["platform"] == "linux-amd64":
                 sysroot = Path(build["sysroot"])

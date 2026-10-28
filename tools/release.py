@@ -9,14 +9,14 @@ import subprocess
 import tempfile
 import time
 
-from distribution import FORMATS, PLATFORMS, basename, sha256, version, serial_from_tag
+from distribution import FORMATS, PLATFORMS, TOOLS, distributions, basename, sha256, version, serial_from_tag
 from fetch import ROOT
 
 
 def validate_assets(directory, wine, serial, commit):
     expected = set()
-    for platform, specification in PLATFORMS.items():
-        name = basename(platform, wine, serial)
+    for product, platform in distributions():
+        name = basename(platform, wine, serial, product)
         archive_hashes = {}
         for kind in ("", "-sources"):
             for extension in FORMATS:
@@ -29,14 +29,18 @@ def validate_assets(directory, wine, serial, commit):
                 if not kind:
                     archive_hashes[filename] = digest
         manifest = json.loads((directory / f"{name}.manifest.json").read_text())
-        if (manifest["platform"] != platform or manifest["wine"] != wine or
+        if (manifest.get("product", "runtime") != product or manifest["platform"] != platform or manifest["wine"] != wine or
                 manifest["artifact_version"] != version(wine, serial) or
                 manifest["build"]["recipe_commit"] != commit or manifest["build"]["recipe_dirty"]):
             raise ValueError(f"manifest does not match release recipe: {name}")
         qualification = json.loads((directory / f"{name}.qualification.json").read_text())
-        if (qualification["status"] != "passed" or qualification["archives"] != archive_hashes or
-                qualification["guests"] != specification["guests"]):
+        if qualification["status"] != "passed" or qualification["archives"] != archive_hashes:
             raise ValueError(f"archives are not qualified: {name}")
+        if product == "runtime":
+            if qualification["guests"] != PLATFORMS[platform]["guests"]:
+                raise ValueError(f"guest CPUs are not qualified: {name}")
+        elif qualification["tools"] != list(TOOLS) or qualification["target_cpus"] != ["amd64", "arm64"]:
+            raise ValueError(f"developer tools are not qualified: {name}")
         checks = json.loads((directory / f"{name}.artifacts.json").read_text())
         all_hashes = {name + kind + extension: sha256(directory / (name + kind + extension))
                       for kind in ("", "-sources") for extension in FORMATS}
@@ -90,8 +94,8 @@ def main():
     if args.directory is None:
         parser.error("publication requires the directory of tested artifacts")
     assets = validate_assets(args.directory, wine, serial, args.commit)
-    for platform in PLATFORMS:
-        name = basename(platform, wine, serial)
+    for product, platform in distributions():
+        name = basename(platform, wine, serial, product)
         bundle = args.directory / f"{name}.attestation.jsonl"
         for asset in assets:
             if asset.name.startswith(name + ".") or asset.name.startswith(name + "-sources."):
