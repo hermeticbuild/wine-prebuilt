@@ -252,8 +252,8 @@ Ship the matching source archives and notices with the runtime; see
 
 ## Limitations
 
-- Headless profile: GUI, audio, printing, multimedia and other optional
-  integrations are disabled. GnuTLS/Kerberos integrations are also disabled.
+- Headless profile: GUI, audio, printing, multimedia, input devices and other
+  optional integrations are disabled. GnuTLS/Kerberos integrations are also disabled.
 - No macOS amd64 build, Rosetta fallback, ARM32 guest, or qualified macOS i386
   support. ARM64/x64 success does not establish that arbitrary Windows programs
   work. macOS FEX integration remains young.
